@@ -1,12 +1,15 @@
 """Request类，从 WSGI 服务器拿到请求并解析"""
 
+import re
 from urllib.parse import unquote, quote
-from http.cookiejar import split_header_words
+from io import BytesIO
 
 from server.utils import Headers, cache_property
 
 
 class Request:
+    MEMFILE_MAX = 102400  # 内存缓存最大 100k
+
     def __init__(self, environ):
         self.environ = environ
 
@@ -17,38 +20,31 @@ class Request:
     def headers(self):
         return self._initiate_headers()
 
-    def _initiate_headers(self):
-        headers = Headers()
-
-        def repair(k):
-            k.replace("_", "-").title()
-
-        for key, value in self.environ.items():
-            if key in ("CONTENT_TYPE", "CONTENT_LENGTH") and value:
-                headers.add_header(repair(key), value)
-
-            elif key.startswith("HTTP_") and key:
-                headers.add_header(repair(key[5:]), value)
-            headers.add_header(key, value)
-
-        return headers
-
+    @cache_property
     def cookies(self):
-        cookies_header = (self.environ.get('HTTP_COOKIE', '')).values()
-        cookies = split_header_words(cookies_header)
-        return cookies
+        return self._parse_cookies()
 
-    def form(self):
-        pass
-
-    def params(self):
-        pass
-
+    @property
     def body(self):
-        read_func = self.environ['wsgi.input'].read
+        fp = self._body
+        fp.seek(0)
+        return fp
 
     def files(self):
         pass
+
+    @cache_property
+    def form(self):
+        return self._parse_form()
+
+    @cache_property
+    def params(self):
+        params = self.query.copy()
+
+        if isinstance(self.form, dict):
+            params.update(self.form)
+
+        return params
 
     @cache_property
     def method(self):
@@ -111,3 +107,99 @@ class Request:
     @property
     def remote_addr(self):
         return self.environ.get("REMOTE_ADDR")
+
+    @cache_property
+    def content_type(self):
+        return self._parse_content_type()
+
+    @cache_property
+    def content_encoding(self):
+        return self.content_type.get('charset', 'utf-8')
+
+    def _initiate_headers(self):
+        headers = Headers()
+
+        def repair(k):
+            k.replace("_", "-").title()
+
+        for key, value in self.environ.items():
+            if key in ("CONTENT_TYPE", "CONTENT_LENGTH") and value:
+                headers.add_header(repair(key), value)
+
+            elif key.startswith("HTTP_") and key:
+                headers.add_header(repair(key[5:]), value)
+            headers.add_header(key, value)
+
+        return headers
+
+    def _parse_cookies(self):
+        cookies = {}
+        cookies_str = self.environ.get('HTTP_COOKIE', None)
+
+        if cookies_str is not None:
+            param_lst = cookies_str.split(';')
+            for param in param_lst:
+                param = param.strip()
+                k, v = param.split('=', 1)
+                k, v = k.strip(), v.strip()
+                cookies[k] = v
+
+        return cookies
+
+    @cache_property
+    def _body(self):
+        input_stream = self.environ.get('wsgi.input', BytesIO())
+        buffer = BytesIO()
+        try:
+            content_length = int(self.environ.get('CONTENT_LENGTH'))
+        except ValueError:
+            content_length = 0
+
+        read_size = min(4096, content_length)
+
+        if 'chunked' in self.environ.get('HTTP_TRANSFER_ENCODING', '').lower():
+            pass
+            # TODO: 处理 chunk 数据
+
+        buffer.write(input_stream.read(read_size))
+        pos = buffer.tell()
+        while pos < content_length and pos < self.MEMFILE_MAX:
+            buffer.write(input_stream.read(read_size))
+            pos = buffer.tell()
+
+        buffer.flush()
+
+        return buffer
+
+    def _parse_content_type(self):
+        content_type = {}
+        content = self.environ.get('CONTENT_TYPE', '').lower()
+        mime_type, *options = content.split(';')
+
+        content_type['mime_type'] = mime_type.strip()
+
+        if options:
+            for opt in options:
+                k, v = opt.split('=')
+                k, v = k.strip(), v.strip()
+                content_type[k] = v
+
+        return content_type
+
+    def _parse_form(self):
+        mime_type = self.content_type.get('mime_type')
+        forms_str = self.body.read().decode(self.content_encoding)
+
+        if (self.method == 'POST'
+                and mime_type == 'application/x-www-form-urlencoded'
+        ):
+            forms = {}
+            param_lst = forms_str.split('&')
+            for param in param_lst:
+                k, v = param.split('=')
+                k, v = k.strip(), v.strip()
+                forms[k] = v
+
+            return forms
+
+        return forms_str
