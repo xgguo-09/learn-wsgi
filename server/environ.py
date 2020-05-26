@@ -45,7 +45,7 @@ def setup_environ(request, server):
     env['QUERY_STRING'] = request.query_string
     env['SERVER_PROTOCOL'] = request.version
     env['SERVER_NAME'] = server.server_address[0]
-    env['SERVER_NAME'] = server.server_address[1]
+    env['SERVER_PORT'] = server.server_address[1]
 
     for k, v in header:
         k = k.upper().replace("-", "_")

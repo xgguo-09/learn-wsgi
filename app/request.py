@@ -1,14 +1,14 @@
 """Request类，从 WSGI 服务器拿到请求并解析"""
 
-import re
 from urllib.parse import unquote, quote
 from io import BytesIO
 
-from server.utils import Headers, cache_property
+from server.utils import Headers, cache_property, log
 
 
 class Request:
-    MEMFILE_MAX = 102400  # 内存缓存最大 100k
+    MEMFILE_MAX = 102400  # 内存最大缓存100k
+    headers_cls = Headers
 
     def __init__(self, environ):
         self.environ = environ
@@ -40,10 +40,7 @@ class Request:
     @cache_property
     def params(self):
         params = self.query.copy()
-
-        if isinstance(self.form, dict):
-            params.update(self.form)
-
+        params.update(self.form)
         return params
 
     @cache_property
@@ -56,7 +53,7 @@ class Request:
 
     @cache_property
     def host(self):
-        host = self.headers.get('host', None)
+        host = self.headers.get('Host', None)
         assert (host is not None and host), ValueError('Host error')
         return host
 
@@ -98,10 +95,12 @@ class Request:
                 continue
 
             kv_list = pair[:].split('=', 1)
+
             if len(kv_list) == 2:
                 key = unquote(kv_list[0].replace('+', ' '))
                 value = unquote(kv_list[1].replace('+', ' '))
                 q[key] = value
+
         return q
 
     @property
@@ -117,17 +116,18 @@ class Request:
         return self.content_type.get('charset', 'utf-8')
 
     def _initiate_headers(self):
-        headers = Headers()
+        headers = self.headers_cls()
 
         def repair(k):
-            k.replace("_", "-").title()
+            return k.replace("_", "-").title()
 
         for key, value in self.environ.items():
             if key in ("CONTENT_TYPE", "CONTENT_LENGTH") and value:
-                headers.add_header(repair(key), value)
+                key = repair(key)
 
-            elif key.startswith("HTTP_") and key:
-                headers.add_header(repair(key[5:]), value)
+            if key.startswith("HTTP_") and key:
+                key = repair(key[5:])
+
             headers.add_header(key, value)
 
         return headers
@@ -158,7 +158,8 @@ class Request:
         read_size = min(4096, content_length)
 
         if 'chunked' in self.environ.get('HTTP_TRANSFER_ENCODING', '').lower():
-            pass
+            log('Not supported chunked file upload')
+            return
             # TODO: 处理 chunk 数据
 
         buffer.write(input_stream.read(read_size))
@@ -187,19 +188,17 @@ class Request:
         return content_type
 
     def _parse_form(self):
+        forms = {}
         mime_type = self.content_type.get('mime_type')
         forms_str = self.body.read().decode(self.content_encoding)
 
         if (self.method == 'POST'
                 and mime_type == 'application/x-www-form-urlencoded'
         ):
-            forms = {}
             param_lst = forms_str.split('&')
             for param in param_lst:
                 k, v = param.split('=')
                 k, v = k.strip(), v.strip()
                 forms[k] = v
 
-            return forms
-
-        return forms_str
+        return forms

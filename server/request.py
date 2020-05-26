@@ -6,8 +6,7 @@ __all__ = ['Request']
 
 
 class Request:
-    encoder = 'latin-1'
-    body_encoder = 'utf-8'
+    encoding = 'latin-1'
 
     def __init__(self):
         self.method = None
@@ -23,7 +22,7 @@ class Request:
         """ :param sock:套接字对象 """
         fp = sock.makefile('rb')
         self = cls()
-        request_line = str(fp.readline(), cls.encoder)
+        request_line = str(fp.readline(), cls.encoding)
         self._request_line = request_line.rstrip()
 
         lst = []
@@ -32,7 +31,7 @@ class Request:
                 break
             lst.append(line)
 
-        headers = ''.join(map(lambda x: x.decode(cls.encoder), lst))
+        headers = ''.join(map(lambda x: x.decode(cls.encoding), lst))
 
         self.parse_request_line(request_line)
         self.parse_headers(headers)
