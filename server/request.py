@@ -39,8 +39,9 @@ class Request:
 
     def parse_request_line(self, line):
         """:param line: "method, path, version" """
-        self.method, self.path, *rest = line.split(' ')
-        query_list = self.path.split('?', 1)
+        self.method, full_path, *rest = line.split(' ')
+        query_list = full_path.split('?', 1)
+        self.path = query_list[0]
 
         if len(query_list) == 2:
             self.query_string = query_list[1]

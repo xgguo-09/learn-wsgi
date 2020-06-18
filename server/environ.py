@@ -41,8 +41,8 @@ def setup_environ(request, server):
     env['wsgi.input'] = ''
     env['wsgi.url_scheme'] = 'http'
     env['REQUEST_METHOD'] = request.method
-    env['PATH_INTO'] = request.path
-    env['QUERY_STRING'] = request.query_string
+    env['PATH_INFO'] = request.path
+    env['QUERY_STRING'] = request.query_string or ''
     env['SERVER_PROTOCOL'] = request.version
     env['SERVER_NAME'] = server.server_address[0]
     env['SERVER_PORT'] = server.server_address[1]

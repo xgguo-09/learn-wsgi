@@ -64,7 +64,9 @@ class Request:
 
     @cache_property
     def full_path(self):
-        return f'{self.path}?{self.query_string}'
+        if self.query_string:
+            return f'{self.path}?{self.query_string}'
+        return self.path
 
     @cache_property
     def base_url(self):
@@ -81,7 +83,10 @@ class Request:
 
     @property
     def query_string(self):
-        return self.environ.get('QUERY_STRING', '')
+        rv = self.environ.get('QUERY_STRING')
+        if rv is None:
+            return ''
+        return rv
 
     @cache_property
     def query(self):
@@ -90,7 +95,7 @@ class Request:
         if query_string == '' or query_string is None:
             return q
 
-        for pair in query_string.split(';'):
+        for pair in query_string.split('&'):
             if not pair:
                 continue
 
@@ -134,7 +139,7 @@ class Request:
 
     def _parse_cookies(self):
         cookies = {}
-        cookies_str = self.environ.get('HTTP_COOKIE', None)
+        cookies_str = self.environ.get('HTTP_COOKIE')
 
         if cookies_str is not None:
             param_lst = cookies_str.split(';')
@@ -177,7 +182,8 @@ class Request:
         content = self.environ.get('CONTENT_TYPE', '').lower()
         mime_type, *options = content.split(';')
 
-        content_type['mime_type'] = mime_type.strip()
+        if content:
+            content_type['mime_type'] = mime_type.strip()
 
         if options:
             for opt in options:
